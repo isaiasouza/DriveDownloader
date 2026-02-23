@@ -2,7 +2,7 @@
 # Build release and create .app bundle for DriveDownloader
 set -e
 
-APP_NAME="Drive Downloader"
+APP_NAME="Iris Downloader"
 BUNDLE_ID="com.irismedia.DriveDownloader"
 EXECUTABLE="DriveDownloader"
 
