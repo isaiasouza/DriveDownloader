@@ -13,7 +13,7 @@ struct AppSettings: Codable {
     var autoRetryEnabled: Bool
     var maxRetries: Int
 
-    static let appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2"
+    static let appVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.3"
 
     init(
         defaultDestination: String,

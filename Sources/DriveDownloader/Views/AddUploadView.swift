@@ -13,6 +13,8 @@ struct AddUploadView: View {
     @State private var totalFileInfo: String = ""
     @State private var isDragOver = false
     @State private var showDriveBrowser = false
+    @State private var showDuplicateAlert = false
+    @State private var duplicatePaths: [String] = []
 
     var body: some View {
         VStack(spacing: 20) {
@@ -213,6 +215,14 @@ struct AddUploadView: View {
         .padding(24)
         .frame(width: 520, height: 480)
         .background(AppTheme.bgSecondary)
+        .alert("Duplicado detectado", isPresented: $showDuplicateAlert) {
+            Button("Enviar mesmo assim") {
+                forceAddDuplicates()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("\(duplicatePaths.count) item(ns) já existe(m) na fila ou no histórico. Deseja enviar novamente?")
+        }
     }
 
     private var canUpload: Bool {
@@ -311,9 +321,34 @@ struct AddUploadView: View {
         } else {
             link = driveLink
         }
+        var dupes: [String] = []
         for path in localPaths {
             Task {
-                await manager.addUpload(localPath: path, driveLink: link)
+                let result = await manager.addUpload(localPath: path, driveLink: link)
+                if result == .duplicateActive || result == .duplicateHistory {
+                    dupes.append(path)
+                }
+            }
+        }
+
+        if !dupes.isEmpty {
+            duplicatePaths = dupes
+            showDuplicateAlert = true
+        } else {
+            dismiss()
+        }
+    }
+
+    private func forceAddDuplicates() {
+        let link: String
+        if !driveFolderID.isEmpty {
+            link = driveFolderID
+        } else {
+            link = driveLink
+        }
+        for path in duplicatePaths {
+            Task {
+                await manager.addUpload(localPath: path, driveLink: link, force: true)
             }
         }
         dismiss()

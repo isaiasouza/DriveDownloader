@@ -8,9 +8,13 @@ struct DownloadRowView: View {
     let onOpenFinder: () -> Void
 
     @State private var isHovering = false
+    @State private var isExpanded = false
     @State private var linkCopied = false
     @State private var showCancelConfirm = false
-    @State private var showTransferLog = false
+
+    private var hasFileDetails: Bool {
+        item.isFolder || item.totalFiles > 1 || !item.transferringFiles.isEmpty || !item.completedFileNames.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -47,7 +51,7 @@ struct DownloadRowView: View {
                         .foregroundColor(AppTheme.textMuted)
                     }
 
-                    if !item.currentFileName.isEmpty && item.status == .downloading {
+                    if !item.currentFileName.isEmpty && item.status == .downloading && !isExpanded {
                         Text(item.currentFileName)
                             .font(.system(size: 11))
                             .foregroundColor(AppTheme.textMuted)
@@ -110,6 +114,54 @@ struct DownloadRowView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
+            // Expandable file details toggle
+            if hasFileDetails && !item.status.isFinished {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+
+                        if !item.transferringFiles.isEmpty {
+                            Text("\(item.transferringFiles.count) transferindo")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+
+                        if !item.completedFileNames.isEmpty {
+                            if !item.transferringFiles.isEmpty {
+                                Text("·")
+                            }
+                            Text("\(item.completedFileNames.count) concluído\(item.completedFileNames.count == 1 ? "" : "s")")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+
+                        if item.transferringFiles.isEmpty && item.completedFileNames.isEmpty {
+                            Text("Ver arquivos")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+
+                        Spacer()
+                    }
+                    .foregroundColor(AppTheme.accent)
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(AppTheme.accent.opacity(0.08))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Expanded per-file list
+            if isExpanded && hasFileDetails && !item.status.isFinished {
+                expandedFileList
+            }
+
             if item.status == .fetchingInfo {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -131,12 +183,6 @@ struct DownloadRowView: View {
             // Action buttons
             if !item.status.isFinished {
                 HStack(spacing: 12) {
-                    if !item.transferLog.isEmpty {
-                        actionButton("Log", icon: "doc.text", color: AppTheme.info) {
-                            showTransferLog = true
-                        }
-                    }
-
                     Spacer()
 
                     if item.status == .downloading {
@@ -192,9 +238,6 @@ struct DownloadRowView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: item.status)
-        .sheet(isPresented: $showTransferLog) {
-            TransferLogView(item: item)
-        }
         .alert("Cancelar transferência?", isPresented: $showCancelConfirm) {
             Button("Cancelar transferência", role: .destructive) {
                 onCancel()
@@ -203,6 +246,80 @@ struct DownloadRowView: View {
         } message: {
             Text("O progresso de \"\(item.driveName)\" será perdido.")
         }
+    }
+
+    private var expandedFileList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Currently transferring files
+            ForEach(item.transferringFiles) { file in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: item.transferType == .upload ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(AppTheme.accent)
+                        Text(file.name)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(AppTheme.textPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(Int(file.percentage))%")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(AppTheme.accent)
+                    }
+                    HStack(spacing: 8) {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(AppTheme.accent.opacity(0.15))
+                                    .frame(height: 4)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(AppTheme.accent)
+                                    .frame(width: geo.size.width * min(file.percentage / 100.0, 1.0), height: 4)
+                            }
+                        }
+                        .frame(height: 4)
+                        Text("\(file.bytesTransferredFormatted) / \(file.sizeFormatted)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(AppTheme.textMuted)
+                            .fixedSize()
+                        if !file.speed.isEmpty {
+                            Text(file.speed)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(AppTheme.accent.opacity(0.8))
+                                .fixedSize()
+                        }
+                    }
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(AppTheme.accent.opacity(0.04))
+                )
+            }
+
+            // Completed files
+            if !item.completedFileNames.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(item.completedFileNames, id: \.self) { name in
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(AppTheme.success)
+                            Text(name)
+                                .font(.system(size: 11))
+                                .foregroundColor(AppTheme.textSecondary)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private var copyLinkButton: some View {

@@ -22,6 +22,8 @@ final class DownloadItem: ObservableObject, Identifiable, Codable {
     @Published var currentFileName: String
     @Published var shareLink: String?
     @Published var retryCount: Int = 0
+    @Published var transferringFiles: [FileTransferInfo] = []
+    @Published var completedFileNames: [String] = []
     var transferLog: [String] = []  // not persisted
 
     var progress: Double {

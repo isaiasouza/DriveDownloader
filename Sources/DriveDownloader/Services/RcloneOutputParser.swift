@@ -1,5 +1,22 @@
 import Foundation
 
+struct FileTransferInfo: Identifiable {
+    let id = UUID()
+    let name: String
+    let size: Int64
+    let bytesTransferred: Int64
+    let percentage: Double  // 0-100
+    let speed: String
+
+    var sizeFormatted: String {
+        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+
+    var bytesTransferredFormatted: String {
+        ByteCountFormatter.string(fromByteCount: bytesTransferred, countStyle: .file)
+    }
+}
+
 struct RcloneStats {
     var bytesTransferred: Int64 = 0
     var totalBytes: Int64 = 0
@@ -9,6 +26,7 @@ struct RcloneStats {
     var totalFiles: Int = 0
     var percentage: Double = 0
     var currentFileName: String = ""
+    var transferringFiles: [FileTransferInfo] = []
 }
 
 enum RcloneOutputParser {
@@ -71,11 +89,43 @@ enum RcloneOutputParser {
             result.percentage = Double(result.bytesTransferred) / Double(result.totalBytes)
         }
 
-        // Extract current transferring file name
-        if let transferring = stats["transferring"] as? [[String: Any]],
-           let first = transferring.first,
-           let name = first["name"] as? String {
-            result.currentFileName = (name as NSString).lastPathComponent
+        // Extract all transferring files
+        if let transferring = stats["transferring"] as? [[String: Any]] {
+            for entry in transferring {
+                guard let name = entry["name"] as? String else { continue }
+
+                var fileSize: Int64 = 0
+                if let s = entry["size"] as? Int64 { fileSize = s }
+                else if let s = entry["size"] as? Int { fileSize = Int64(s) }
+                else if let s = entry["size"] as? Double { fileSize = Int64(s) }
+
+                var fileBytes: Int64 = 0
+                if let b = entry["bytes"] as? Int64 { fileBytes = b }
+                else if let b = entry["bytes"] as? Int { fileBytes = Int64(b) }
+                else if let b = entry["bytes"] as? Double { fileBytes = Int64(b) }
+
+                var filePct: Double = 0
+                if let p = entry["percentage"] as? Double { filePct = p }
+                else if let p = entry["percentage"] as? Int { filePct = Double(p) }
+
+                var fileSpeed = ""
+                if let sp = entry["speed"] as? Double {
+                    fileSpeed = ByteCountFormatter.string(fromByteCount: Int64(sp), countStyle: .file) + "/s"
+                }
+
+                let info = FileTransferInfo(
+                    name: (name as NSString).lastPathComponent,
+                    size: fileSize,
+                    bytesTransferred: fileBytes,
+                    percentage: filePct,
+                    speed: fileSpeed
+                )
+                result.transferringFiles.append(info)
+            }
+
+            if let firstName = transferring.first?["name"] as? String {
+                result.currentFileName = (firstName as NSString).lastPathComponent
+            }
         }
 
         return result

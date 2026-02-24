@@ -21,6 +21,9 @@ final class DownloadManager: ObservableObject {
     // Duplicate detection
     @Published var duplicateWarning: String? = nil
 
+    // File exists detection
+    @Published var fileExistsItem: DownloadItem? = nil
+
     // Computed for menu bar
     var totalProgress: Double {
         let active = activeDownloads.filter { $0.status == .downloading }
@@ -233,6 +236,13 @@ final class DownloadManager: ObservableObject {
                     self.saveActiveStateNow()
                     return
                 }
+
+                // Check if file/folder already exists at destination
+                let targetPath = (dest as NSString).appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: targetPath) {
+                    self.fileExistsItem = item
+                    return  // Wait for user confirmation before processing queue
+                }
             } catch {
                 // Info fetch failed — rclone stats will fill in data
             }
@@ -242,10 +252,36 @@ final class DownloadManager: ObservableObject {
         return .added
     }
 
+    /// User chose to replace existing file — proceed with download
+    func confirmReplaceFile() {
+        fileExistsItem = nil
+        processQueue()
+    }
+
+    /// User chose to skip — cancel the download
+    func skipFileExists() {
+        if let item = fileExistsItem {
+            item.status = .cancelled
+            moveToHistory(item)
+            saveActiveStateNow()
+        }
+        fileExistsItem = nil
+        processQueue()
+    }
+
     private func checkDiskSpace(path: String, needed: Int64) -> String? {
-        let url = URL(fileURLWithPath: path)
-        guard let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
-              let available = values.volumeAvailableCapacityForImportantUsage else {
+        // Walk up to the nearest existing directory so resourceValues returns real data
+        var checkURL = URL(fileURLWithPath: path)
+        while !FileManager.default.fileExists(atPath: checkURL.path) {
+            let parent = checkURL.deletingLastPathComponent()
+            if parent == checkURL { break }
+            checkURL = parent
+        }
+
+        guard let values = try? checkURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+              let available = values.volumeAvailableCapacityForImportantUsage,
+              available > 0 else {
+            // Could not reliably determine available space — skip check
             return nil
         }
         if needed > available {
@@ -303,6 +339,19 @@ final class DownloadManager: ObservableObject {
                 if !stats.currentFileName.isEmpty {
                     item.currentFileName = stats.currentFileName
                 }
+
+                // Track completed files (files that left the transferring array)
+                let previousNames = Set(item.transferringFiles.map { $0.name })
+                let newNames = Set(stats.transferringFiles.map { $0.name })
+                let finished = previousNames.subtracting(newNames)
+                if !finished.isEmpty {
+                    let existingCompleted = Set(item.completedFileNames)
+                    for name in finished where !existingCompleted.contains(name) {
+                        item.completedFileNames.append(name)
+                    }
+                }
+                item.transferringFiles = stats.transferringFiles
+
                 self?.updateDockBadge()
             },
             onLogLine: { [weak item] line in
@@ -416,10 +465,21 @@ final class DownloadManager: ObservableObject {
 
     // MARK: - Upload
 
-    func addUpload(localPath: String, driveLink: String, remoteName: String? = nil) async {
-        guard let parsed = GoogleDriveLinkParser.parse(driveLink) else { return }
+    @discardableResult
+    func addUpload(localPath: String, driveLink: String, remoteName: String? = nil, force: Bool = false) async -> AddResult {
+        guard let parsed = GoogleDriveLinkParser.parse(driveLink) else { return .invalidLink }
 
         let remote = remoteName ?? settings.rcloneRemoteName
+
+        if !force, let duplicate = checkDuplicate(driveID: parsed.id, destinationPath: localPath) {
+            if duplicate == .duplicateActive {
+                duplicateWarning = "Este arquivo já está na fila de transferências."
+            } else {
+                duplicateWarning = "Este arquivo já foi enviado anteriormente para este destino."
+            }
+            return duplicate
+        }
+
         let fileName = (localPath as NSString).lastPathComponent
         var isDir: ObjCBool = false
         let isFolder = FileManager.default.fileExists(atPath: localPath, isDirectory: &isDir) && isDir.boolValue
@@ -442,6 +502,7 @@ final class DownloadManager: ObservableObject {
         item.status = .queued
         saveActiveStateNow()
         processQueue()
+        return .added
     }
 
     private func startUpload(_ item: DownloadItem) {
@@ -466,6 +527,19 @@ final class DownloadManager: ObservableObject {
                 if !stats.currentFileName.isEmpty {
                     item.currentFileName = stats.currentFileName
                 }
+
+                // Track completed files (files that left the transferring array)
+                let previousNames = Set(item.transferringFiles.map { $0.name })
+                let newNames = Set(stats.transferringFiles.map { $0.name })
+                let finished = previousNames.subtracting(newNames)
+                if !finished.isEmpty {
+                    let existingCompleted = Set(item.completedFileNames)
+                    for name in finished where !existingCompleted.contains(name) {
+                        item.completedFileNames.append(name)
+                    }
+                }
+                item.transferringFiles = stats.transferringFiles
+
                 self?.updateDockBadge()
             },
             onLogLine: { [weak item] line in

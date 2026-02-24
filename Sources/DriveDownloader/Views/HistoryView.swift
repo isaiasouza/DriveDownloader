@@ -6,6 +6,7 @@ struct HistoryView: View {
     @State private var searchText: String = ""
     @State private var statusFilter: HistoryFilter = .all
     @State private var logItem: DownloadItem? = nil
+    @State private var expandedItems: Set<UUID> = Set()
 
     enum HistoryFilter: String, CaseIterable {
         case all = "Todos"
@@ -155,131 +156,198 @@ struct HistoryView: View {
     }
 
     private func historyRow(_ item: DownloadItem) -> some View {
-        HStack(spacing: 12) {
-            // Status icon
-            ZStack {
-                Circle()
-                    .fill(AppTheme.statusColor(for: item.status).opacity(0.12))
-                    .frame(width: 32, height: 32)
+        let isExpanded = expandedItems.contains(item.id)
 
-                Image(systemName: item.status.systemImage(for: item.transferType))
-                    .font(.system(size: 14))
-                    .foregroundColor(AppTheme.statusColor(for: item.status))
-            }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                // Status icon
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.statusColor(for: item.status).opacity(0.12))
+                        .frame(width: 32, height: 32)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.driveName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppTheme.textPrimary)
-                    .lineLimit(1)
+                    Image(systemName: item.status.systemImage(for: item.transferType))
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.statusColor(for: item.status))
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.driveName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(AppTheme.textPrimary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 8) {
+                        if item.transferType == .upload {
+                            Text("Upload")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(AppTheme.success)
+                        }
+
+                        if !item.remoteName.isEmpty {
+                            HStack(spacing: 2) {
+                                Image(systemName: "person.circle")
+                                    .font(.system(size: 9))
+                                Text(item.remoteName)
+                                    .font(.system(size: 10))
+                            }
+                            .foregroundColor(AppTheme.textMuted)
+                        }
+
+                        Text(item.totalBytesFormatted)
+                            .font(.system(size: 11, design: .monospaced))
+
+                        if let date = item.dateCompleted {
+                            Text(date.formatted(date: .abbreviated, time: .shortened))
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .foregroundColor(AppTheme.textMuted)
+
+                    if let error = item.errorMessage, !isExpanded {
+                        Text(error)
+                            .font(.system(size: 10))
+                            .foregroundColor(AppTheme.error)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
 
                 HStack(spacing: 8) {
-                    if item.transferType == .upload {
-                        Text("Upload")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(AppTheme.success)
-                    }
-
-                    if !item.remoteName.isEmpty {
-                        HStack(spacing: 2) {
-                            Image(systemName: "person.circle")
-                                .font(.system(size: 9))
-                            Text(item.remoteName)
-                                .font(.system(size: 10))
-                        }
-                        .foregroundColor(AppTheme.textMuted)
-                    }
-
-                    Text(item.totalBytesFormatted)
-                        .font(.system(size: 11, design: .monospaced))
-
-                    if let date = item.dateCompleted {
-                        Text(date.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 11))
-                    }
-                }
-                .foregroundColor(AppTheme.textMuted)
-
-                if let error = item.errorMessage {
-                    Text(error)
-                        .font(.system(size: 10))
-                        .foregroundColor(AppTheme.error)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            HStack(spacing: 8) {
-                if !item.transferLog.isEmpty {
                     Button {
-                        logItem = item
-                    } label: {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppTheme.info)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Ver log")
-                }
-
-                if item.status == .completed && item.transferType == .upload,
-                   let link = item.shareLink {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(link, forType: .string)
-                        copiedItemId = item.id
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            if copiedItemId == item.id {
-                                copiedItemId = nil
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if expandedItems.contains(item.id) {
+                                expandedItems.remove(item.id)
+                            } else {
+                                expandedItems.insert(item.id)
                             }
                         }
                     } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: copiedItemId == item.id ? "checkmark" : "link")
-                                .font(.system(size: 11))
-                            Text(copiedItemId == item.id ? "Copiado!" : "Copiar Link")
-                                .font(.system(size: 10, weight: .medium))
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(AppTheme.textMuted)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if !item.transferLog.isEmpty {
+                        Button {
+                            logItem = item
+                        } label: {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 13))
+                                .foregroundColor(AppTheme.info)
                         }
-                        .foregroundColor(copiedItemId == item.id ? AppTheme.success : AppTheme.accent)
+                        .buttonStyle(.plain)
+                        .help("Ver log")
                     }
-                    .buttonStyle(.plain)
-                    .help("Copiar link de compartilhamento")
-                }
 
-                if item.status == .completed {
+                    if item.status == .completed && item.transferType == .upload,
+                       let link = item.shareLink {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(link, forType: .string)
+                            copiedItemId = item.id
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                if copiedItemId == item.id {
+                                    copiedItemId = nil
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: copiedItemId == item.id ? "checkmark" : "link")
+                                    .font(.system(size: 11))
+                                Text(copiedItemId == item.id ? "Copiado!" : "Copiar Link")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundColor(copiedItemId == item.id ? AppTheme.success : AppTheme.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copiar link de compartilhamento")
+                    }
+
+                    if item.status == .completed {
+                        Button {
+                            manager.openInFinder(item)
+                        } label: {
+                            Image(systemName: "folder")
+                                .font(.system(size: 13))
+                                .foregroundColor(AppTheme.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Abrir no Finder")
+                    }
+
+                    if item.status == .failed || item.status == .cancelled {
+                        Button {
+                            manager.retryDownload(item)
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 13))
+                                .foregroundColor(AppTheme.warning)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Tentar novamente")
+                    }
+
                     Button {
-                        manager.openInFinder(item)
+                        manager.removeFromHistory(item)
                     } label: {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppTheme.accent)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10))
+                            .foregroundColor(AppTheme.textMuted)
                     }
                     .buttonStyle(.plain)
-                    .help("Abrir no Finder")
+                    .help("Remover")
                 }
+            }
 
-                if item.status == .failed || item.status == .cancelled {
-                    Button {
-                        manager.retryDownload(item)
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppTheme.warning)
+            // Expanded metadata section
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider()
+                        .background(AppTheme.cardBorder)
+                        .padding(.vertical, 4)
+
+                    historyDetailRow(icon: "folder", label: "Destino", value: item.destinationPath)
+
+                    if item.totalFiles > 0 {
+                        historyDetailRow(icon: "doc.on.doc",
+                                         label: "Arquivos",
+                                         value: "\(item.filesTransferred) de \(item.totalFiles) · \(item.totalBytesFormatted)")
                     }
-                    .buttonStyle(.plain)
-                    .help("Tentar novamente")
-                }
 
-                Button {
-                    manager.removeFromHistory(item)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10))
-                        .foregroundColor(AppTheme.textMuted)
+                    historyDetailRow(icon: "calendar",
+                                     label: "Início",
+                                     value: item.dateAdded.formatted(date: .abbreviated, time: .shortened))
+
+                    if let completed = item.dateCompleted {
+                        historyDetailRow(icon: "calendar.badge.checkmark",
+                                         label: "Conclusão",
+                                         value: completed.formatted(date: .abbreviated, time: .shortened))
+
+                        let duration = completed.timeIntervalSince(item.dateAdded)
+                        historyDetailRow(icon: "timer",
+                                         label: "Duração",
+                                         value: formatDuration(duration))
+                    }
+
+                    if let error = item.errorMessage {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 10))
+                                .foregroundColor(AppTheme.error)
+                            Text(error)
+                                .font(.system(size: 11))
+                                .foregroundColor(AppTheme.error)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .help("Remover")
+                .padding(.top, 4)
+                .padding(.leading, 44) // align with text content
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(10)
@@ -291,5 +359,36 @@ struct HistoryView: View {
                         .strokeBorder(AppTheme.cardBorder, lineWidth: 0.5)
                 )
         )
+    }
+
+    private func historyDetailRow(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(AppTheme.textMuted)
+                .frame(width: 14)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(AppTheme.textSecondary)
+            Text(value)
+                .font(.system(size: 11))
+                .foregroundColor(AppTheme.textMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private func formatDuration(_ interval: TimeInterval) -> String {
+        let totalSeconds = Int(interval)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%dh %02dm %02ds", hours, minutes, seconds)
+        } else if minutes > 0 {
+            return String(format: "%dm %02ds", minutes, seconds)
+        } else {
+            return String(format: "%ds", seconds)
+        }
     }
 }

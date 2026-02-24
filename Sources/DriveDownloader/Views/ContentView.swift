@@ -47,6 +47,21 @@ struct ContentView: View {
         } message: {
             Text(manager.diskSpaceWarning ?? "")
         }
+        .alert("Arquivo já existe", isPresented: Binding(
+            get: { manager.fileExistsItem != nil },
+            set: { if !$0 { manager.fileExistsItem = nil } }
+        )) {
+            Button("Substituir") {
+                manager.confirmReplaceFile()
+            }
+            Button("Pular", role: .cancel) {
+                manager.skipFileExists()
+            }
+        } message: {
+            if let item = manager.fileExistsItem {
+                Text("\"\(item.driveName)\" já existe em \"\((item.destinationPath as NSString).lastPathComponent)\". Deseja substituir?")
+            }
+        }
         .preferredColorScheme(.dark)
         .onDrop(of: [.text, .url], isTargeted: $isDragOver) { providers in
             handleDrop(providers)
